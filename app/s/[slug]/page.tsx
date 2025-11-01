@@ -7,24 +7,38 @@ const supabase = createClient(
 );
 
 async function getData(slug: string) {
-  const { data: post } = await supabase.from("posts").select("*").eq("slug", slug).single();
+  const { data: post } = await supabase
+    .from("posts")
+    .select("*")
+    .eq("slug", slug)
+    .single();
+
   if (!post) return null;
 
-  const { data: project } = await supabase.from("projects").select("*").eq("id", post.project_id).single();
+  const { data: project } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", post.project_id)
+    .single();
 
   return {
-    title: post.title,
-    description: post.description ?? "",
-    image: post.image_url,
-    cta: post.cta_url || project?.cta_url || project?.website || "",
-    redirect: project?.redirect ?? true,
-    redirectDelayMs: project?.redirect_delay_ms ?? 0
+    title: post.title as string,
+    description: (post.description as string) || "",
+    image: post.image_url as string,
+    cta: (post.cta_url as string) || (project?.cta_url as string) || (project?.website as string) || "",
+    redirect: (project?.redirect as boolean) ?? true,
+    redirectDelayMs: (project?.redirect_delay_ms as number) ?? 0
   };
 }
 
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
-  const data = await getData(params.slug);
+// 👇 Note params is a Promise<{ slug: string }>
+export async function generateMetadata(
+  { params }: { params: Promise<{ slug: string }> }
+): Promise<Metadata> {
+  const { slug } = await params;
+  const data = await getData(slug);
   if (!data) return { title: "Not found" };
+
   return {
     title: data.title,
     description: data.description,
@@ -43,19 +57,22 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   };
 }
 
-export default async function Page({ params }: { params: { slug: string } }) {
-  const data = await getData(params.slug);
+// 👇 Same here: await params
+export default async function Page(
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  const { slug } = await params;
+  const data = await getData(slug);
   if (!data) return <main className="p-10 text-center text-gray-400">Not found</main>;
 
-  // Control redirect behavior from project settings
-  const refresh = data.redirect ? (
-    <meta httpEquiv="refresh" content={`${(data.redirectDelayMs ?? 0) / 1000}; url=${data.cta}`} />
-  ) : null;
+  const refresh = data.redirect
+    ? <meta httpEquiv="refresh" content={`${(data.redirectDelayMs ?? 0) / 1000}; url=${data.cta}`} />
+    : null;
 
   return (
     <html>
       <head>{refresh}</head>
-      <body className="bg-black"></body>
+      <body className="bg-black" />
     </html>
   );
 }
