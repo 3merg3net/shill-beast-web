@@ -3,10 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+/** Prevent static export / prerender */
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+/** Lazy Supabase client (only created in the browser, on demand) */
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    // Show a friendly message client-side instead of crashing build
+    throw new Error(
+      "Supabase env vars missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel → Project → Settings → Environment Variables (for Preview and Production) and redeploy."
+    );
+  }
+  return createClient(url, key);
+}
+
+type UploadSlot = { file?: File; url?: string; status?: "idle"|"uploading"|"done"|"error"; };
 
 export default function Portal() {
   // form state
@@ -31,13 +45,21 @@ export default function Portal() {
   const [redirectDelayMs, setRedirectDelayMs] = useState(0);
 
   const [note, setNote] = useState("");
-  const landingUrl = useMemo(() => `/s/${slug}`, [slug]);
+  const [envOk, setEnvOk] = useState<boolean>(true);
 
+  useEffect(() => {
+    // lightweight check only on client
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      setEnvOk(false);
+      setNote("Missing Supabase env vars. Set them in Vercel and redeploy.");
+    }
+  }, []);
+
+  // restore/persist
   useEffect(() => {
     const saved = localStorage.getItem("shillbeast.portal.v2");
     if (saved) {
       try {
-        Object.assign(globalThis, {}); // no-op, just to silence strict TS
         const s = JSON.parse(saved);
         setName(s.name ?? name);
         setSlug(s.slug ?? slug);
@@ -64,6 +86,8 @@ export default function Portal() {
     localStorage.setItem("shillbeast.portal.v2", JSON.stringify(payload));
   }, [name, slug, website, ctaUrl, hashtags, xHandle, telegram, discord, github, medium, title, desc, imageUrl, redirect, redirectDelayMs]);
 
+  const landingUrl = useMemo(() => `/s/${slug}`, [slug]);
+
   async function fetchFromWebsite() {
     setNote("Fetching site metadata…");
     try {
@@ -77,61 +101,93 @@ export default function Portal() {
       if (data.description) setDesc(data.description);
       if (data.image) setImageUrl(data.image);
       setNote("Pulled metadata. Review and adjust as needed.");
-    } catch (e:any) {
-      setNote("Could not fetch metadata. You can fill these manually.");
+    } catch {
+      setNote("Could not fetch metadata. Fill these manually.");
+    }
+  }
+
+  async function handleUpload(i: number, file?: File) {
+    if (!file) return;
+    try {
+      const supabase = getSupabase();
+      const ext = file.name.split(".").pop() || "png";
+      const objectName = `${slug}-${i+1}.${ext}`;
+      const path = objectName;
+
+      setNote("Uploading…");
+      const { error } = await supabase.storage.from("shill-images").upload(path, file, {
+        upsert: true,
+        contentType: file.type
+      });
+      if (error) throw error;
+
+      const { data: pub } = supabase.storage.from("shill-images").getPublicUrl(path);
+      const url = pub?.publicUrl;
+
+      setUploads(prev => prev.map((u, idx) => idx===i ? { ...u, url, status: "done" } : u));
+      setNote("Upload complete ✅");
+    } catch (e: any) {
+      setNote(`Upload failed: ${e?.message ?? "unknown error"}`);
+      setUploads(prev => prev.map((u, idx) => idx===i ? { ...u, status: "error" } : u));
     }
   }
 
   async function saveToSupabase() {
-    setNote("Saving to Supabase…");
+    try {
+      const supabase = getSupabase();
+      setNote("Saving to Supabase…");
 
-    // upsert project
-    const proj = {
-      name,
-      slug,
-      website,
-      cta_url: ctaUrl,
-      hashtags: hashtags.split(",").map(s=>s.trim()).filter(Boolean),
-      x_handle: xHandle,
-      telegram,
-      discord,
-      github,
-      medium,
-      redirect,
-      redirect_delay_ms: Number(redirectDelayMs) || 0
-    };
+      const proj = {
+        name,
+        slug,
+        website,
+        cta_url: ctaUrl,
+        hashtags: hashtags.split(",").map(s=>s.trim()).filter(Boolean),
+        x_handle: xHandle,
+        telegram,
+        discord,
+        github,
+        medium,
+        redirect,
+        redirect_delay_ms: Number(redirectDelayMs) || 0
+      };
 
-    const { data: project, error: pErr } = await supabase
-      .from("projects")
-      .upsert(proj, { onConflict: "slug" })
-      .select()
-      .single();
+      const { data: project, error: pErr } = await supabase
+        .from("projects")
+        .upsert(proj, { onConflict: "slug" })
+        .select()
+        .single();
 
-    if (pErr) { setNote("Project save failed: " + pErr.message); return; }
+      if (pErr) throw pErr;
 
-    // upsert post
-    const post = {
-      project_id: project.id,
-      slug,
-      title,
-      description: desc,
-      image_url: imageUrl,
-      cta_url: ctaUrl
-    };
+      const post = {
+        project_id: project.id,
+        slug,
+        title,
+        description: desc,
+        image_url: imageUrl,
+        cta_url: ctaUrl
+      };
 
-    const { error: postErr } = await supabase
-      .from("posts")
-      .upsert(post, { onConflict: "slug" });
+      const { error: postErr } = await supabase.from("posts").upsert(post, { onConflict: "slug" });
+      if (postErr) throw postErr;
 
-    if (postErr) { setNote("Post save failed: " + postErr.message); return; }
-
-    setNote("Saved ✅ — your OG URL is " + landingUrl);
+      setNote(`Saved ✅ — OG URL: ${landingUrl}`);
+    } catch (e: any) {
+      setNote(`Save failed: ${e?.message ?? "unknown error"}`);
+    }
   }
+
+  const [uploads, setUploads] = useState<UploadSlot[]>([{},{},{}]);
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10 space-y-8">
       <h1 className="text-3xl font-bold text-cyan-300">Project Portal</h1>
-      <p className="text-gray-300">Enter your project details, fetch metadata from your website, and save your tweetable OG card.</p>
+      {!envOk && (
+        <p className="text-amber-300 text-sm">
+          Missing Supabase env vars. Set <code>NEXT_PUBLIC_SUPABASE_URL</code> and <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in Vercel → Project → Settings → Environment Variables (Preview & Production), then redeploy.
+        </p>
+      )}
 
       <div className="grid md:grid-cols-2 gap-8">
         {/* LEFT: Project & socials */}
@@ -213,7 +269,7 @@ export default function Portal() {
             <label className="text-sm text-gray-400">OG Image URL (1200x630)</label>
             <input className="input" value={imageUrl} onChange={e=>setImageUrl(e.target.value)} />
             <img src={imageUrl} alt="preview" className="mt-2 max-h-48 rounded border border-white/10" />
-            <p className="text-xs text-gray-400">Tip: you can upload to your Supabase bucket and paste the public URL here.</p>
+            <p className="text-xs text-gray-400">Tip: upload to your Supabase bucket and paste the public URL.</p>
           </div>
 
           <div className="flex gap-3">
@@ -223,6 +279,32 @@ export default function Portal() {
 
           {note && <p className="text-xs text-amber-300">{note}</p>}
         </section>
+      </div>
+
+      <div className="rounded-xl border border-white/10 p-4 mt-6">
+        <p className="text-gray-400 text-xs">
+          Upload slots:
+        </p>
+        {uploads.map((u, i)=>(
+          <div key={i} className="flex items-center gap-3 mt-2">
+            <input type="file" accept="image/*" onChange={(e)=> {
+              const file = e.target.files?.[0];
+              if (file) {
+                // optimistic local state
+                // @ts-ignore
+                setUploads(prev => prev.map((x, idx)=> idx===i ? {...x, file, status:"idle"} : x));
+                handleUpload(i, file);
+              }
+            }} />
+            <span className="text-xs text-gray-400">
+              {u.status === "uploading" && "Uploading…"}
+              {u.status === "done" && "Done ✅"}
+              {u.status === "error" && "Error ❌"}
+              {!u.status && "—"}
+            </span>
+            {u.url && <a className="text-cyan-300 text-xs hover:underline break-all" href={u.url} target="_blank">{u.url}</a>}
+          </div>
+        ))}
       </div>
 
       <style jsx global>{`
