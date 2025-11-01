@@ -1,12 +1,22 @@
-import { Metadata } from "next";
+import type { Metadata } from "next";
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+export const dynamic = "force-dynamic"; // don't prerender at build
+export const revalidate = 0;
+
+function getClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    // Helpful runtime message if envs are missing on Vercel
+    throw new Error("Supabase env vars missing: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
+  return createClient(url, key);
+}
 
 async function getData(slug: string) {
+  const supabase = getClient();
+
   const { data: post } = await supabase
     .from("posts")
     .select("*")
@@ -22,16 +32,16 @@ async function getData(slug: string) {
     .single();
 
   return {
-    title: post.title as string,
-    description: (post.description as string) || "",
-    image: post.image_url as string,
-    cta: (post.cta_url as string) || (project?.cta_url as string) || (project?.website as string) || "",
+    title: String(post.title),
+    description: String(post.description ?? ""),
+    image: String(post.image_url),
+    cta: String(post.cta_url ?? project?.cta_url ?? project?.website ?? ""),
     redirect: (project?.redirect as boolean) ?? true,
-    redirectDelayMs: (project?.redirect_delay_ms as number) ?? 0
+    redirectDelayMs: (project?.redirect_delay_ms as number) ?? 0,
   };
 }
 
-// 👇 Note params is a Promise<{ slug: string }>
+// Next 15: params can be a Promise
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
@@ -46,18 +56,17 @@ export async function generateMetadata(
       title: data.title,
       description: data.description,
       images: [{ url: data.image, width: 1200, height: 630 }],
-      type: "website"
+      type: "website",
     },
     twitter: {
       card: "summary_large_image",
       title: data.title,
       description: data.description,
-      images: [data.image]
-    }
+      images: [data.image],
+    },
   };
 }
 
-// 👇 Same here: await params
 export default async function Page(
   { params }: { params: Promise<{ slug: string }> }
 ) {
