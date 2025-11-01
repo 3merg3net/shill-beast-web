@@ -1,9 +1,15 @@
 export default function SiteFooter() {
   return (
-    <footer className="border-t border-white/10 bg-[#050913]">
-      <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-gray-400 flex items-center justify-between">
-        <span>© {new Date().getFullYear()} Shill Beast — Powering Decentralized Promotion</span>
-        <span className="text-cyan-300">Built for Base • v0.1</span>
+    <footer className="mt-16 border-t border-white/10">
+      <div className="mx-auto max-w-6xl px-4 py-8 text-xs text-gray-400">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <p>© {new Date().getFullYear()} Shill Beast — Powering decentralized promotion.</p>
+          <div className="flex gap-4">
+            <a className="hover:text-cyan-300 link-underline" href="/portal">Portal</a>
+<a className="hover:text-cyan-300 link-underline" href="/s/basegold-1">OG Demo</a>
+
+          </div>
+        </div>
       </div>
     </footer>
   );

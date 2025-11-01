@@ -5,3 +5,75 @@
 body {
   @apply antialiased;
 }
+:root {
+  --sb-cyan: #59e1ff;         /* softened glow */
+  --sb-cyan-strong: #00c8ff;  /* stronger accent */
+}
+
+/* Reusable buttons */
+.btn {
+  @apply inline-flex items-center justify-center rounded-lg px-5 py-2 font-semibold transition-all duration-200;
+}
+.btn-primary {
+  color: #000;
+  background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(255,255,255,.06) 100%), var(--sb-cyan);
+  box-shadow: 0 0 0 0 rgba(89,225,255,0.0);
+  position: relative;
+  overflow: hidden;
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  background: var(--sb-cyan-strong);
+}
+.btn-primary::after { /* subtle hover pulse ring */
+  content: "";
+  position: absolute;
+  inset: -40%;
+  border-radius: 9999px;
+  background: radial-gradient(circle at center, rgba(89,225,255,0.28), transparent 60%);
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity .25s ease, transform .25s ease;
+}
+.btn-primary:hover::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.btn-secondary {
+  @apply border border-cyan-400/40 text-cyan-300 hover:bg-white/5;
+}
+
+/* Card sugar */
+.card {
+  @apply rounded-2xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent;
+}
+
+/* Subtle grid overlay for site background */
+.sb-grid::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at 50% 10%, rgba(0,0,0,.8), rgba(0,0,0,0.1) 60%, transparent 70%);
+  z-index: 0;
+}
+
+/* Tiny glowing underline for text links */
+.link-underline {
+  position: relative;
+}
+.link-underline::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -2px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--sb-cyan), transparent);
+  opacity: .5;
+  transition: opacity .2s ease;
+}
+.link-underline:hover::after { opacity: 1; }
